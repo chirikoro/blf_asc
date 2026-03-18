@@ -1,11 +1,11 @@
-use chrono::{Datelike, TimeZone, Timelike, Utc};
+use chrono::{Datelike, Local, TimeZone, Timelike, Utc};
 use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
 use std::collections::VecDeque;
 use std::fmt;
 use std::fs::File;
-use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::io::{self, BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
 const FILE_HEADER_STRUCT_SIZE: usize = 72;
@@ -854,6 +854,580 @@ impl BlfWriter {
 }
 
 impl Drop for BlfWriter {
+    fn drop(&mut self) {
+        let _ = self.finish();
+    }
+}
+
+// =========================
+// ASC (Vector) Reader/Writer
+// =========================
+
+pub struct AscReader {
+    reader: BufReader<File>,
+    base: u32,
+    relative_timestamp: bool,
+    start_time: f64,
+    header_parsed: bool,
+    pending_line: Option<String>,
+    error: Option<BlfError>,
+}
+
+impl AscReader {
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
+        Self::open_with_options(path, "hex", true)
+    }
+
+    pub fn open_with_options<P: AsRef<Path>>(
+        path: P,
+        base: &str,
+        relative_timestamp: bool,
+    ) -> Result<Self> {
+        let file = File::open(path)?;
+        let base = Self::check_base(base)?;
+        Ok(Self {
+            reader: BufReader::new(file),
+            base,
+            relative_timestamp,
+            start_time: 0.0,
+            header_parsed: false,
+            pending_line: None,
+            error: None,
+        })
+    }
+
+    pub fn take_error(&mut self) -> Option<BlfError> {
+        self.error.take()
+    }
+
+    fn read_line(&mut self) -> Result<Option<String>> {
+        let mut line = String::new();
+        let read = self.reader.read_line(&mut line)?;
+        if read == 0 {
+            return Ok(None);
+        }
+        Ok(Some(line))
+    }
+
+    fn extract_header(&mut self) -> Result<()> {
+        while let Some(line) = self.read_line()? {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let lower = trimmed.to_lowercase();
+            if lower.starts_with("date ") {
+                let datetime_string = trimmed.splitn(3, ' ').skip(2).collect::<Vec<_>>().join(" ");
+                if !self.relative_timestamp {
+                    if let Some(ts) = Self::datetime_to_timestamp(&datetime_string) {
+                        self.start_time = ts;
+                    }
+                }
+                continue;
+            }
+            if lower.starts_with("base ") {
+                let parts: Vec<&str> = trimmed.split_whitespace().collect();
+                if parts.len() >= 2 {
+                    if let Ok(base) = Self::check_base(parts[1]) {
+                        self.base = base;
+                    }
+                }
+                continue;
+            }
+            if trimmed.starts_with("//") {
+                continue;
+            }
+            if lower.contains("internal events logged") {
+                break;
+            }
+            self.pending_line = Some(line);
+            break;
+        }
+        self.header_parsed = true;
+        Ok(())
+    }
+
+    fn check_base(base: &str) -> Result<u32> {
+        match base {
+            "hex" | "HEX" | "Hex" => Ok(16),
+            "dec" | "DEC" | "Dec" => Ok(10),
+            _ => Err(BlfError::Parse("base should be either hex or dec".into())),
+        }
+    }
+
+    fn datetime_to_timestamp(datetime_string: &str) -> Option<f64> {
+        let parts: Vec<&str> = datetime_string.split_whitespace().collect();
+        if parts.len() < 4 {
+            return None;
+        }
+
+        let month = Self::parse_month(parts[0])?;
+        let day: u32 = parts[1].parse().ok()?;
+        let time_str = parts[2];
+
+        let mut year_idx = 3;
+        let mut am_pm: Option<&str> = None;
+        if parts.len() >= 5 && (parts[3].eq_ignore_ascii_case("AM") || parts[3].eq_ignore_ascii_case("PM")) {
+            am_pm = Some(parts[3]);
+            year_idx = 4;
+        }
+        let year: i32 = parts.get(year_idx)?.parse().ok()?;
+
+        let (mut hour, minute, second, nanos) = Self::parse_time(time_str)?;
+        if let Some(meridian) = am_pm {
+            let is_pm = meridian.eq_ignore_ascii_case("PM");
+            if hour == 12 {
+                hour = if is_pm { 12 } else { 0 };
+            } else if is_pm {
+                hour += 12;
+            }
+        }
+
+        let date = chrono::NaiveDate::from_ymd_opt(year, month, day)?;
+        let time = chrono::NaiveTime::from_hms_nano_opt(hour, minute, second, nanos)?;
+        let dt = chrono::NaiveDateTime::new(date, time);
+        let local_dt = Local.from_local_datetime(&dt).single()?;
+        Some(local_dt.timestamp() as f64 + (local_dt.timestamp_subsec_nanos() as f64 / 1e9))
+    }
+
+    fn parse_month(s: &str) -> Option<u32> {
+        let lower = s.to_lowercase();
+        let map = [
+            ("jan", 1),
+            ("feb", 2),
+            ("mar", 3),
+            ("apr", 4),
+            ("may", 5),
+            ("jun", 6),
+            ("jul", 7),
+            ("aug", 8),
+            ("sep", 9),
+            ("oct", 10),
+            ("nov", 11),
+            ("dec", 12),
+            ("mär", 3),
+            ("mai", 5),
+            ("okt", 10),
+            ("dez", 12),
+        ];
+        for (name, val) in map.iter() {
+            if lower.starts_with(name) {
+                return Some(*val);
+            }
+        }
+        if let Ok(v) = s.parse::<u32>() {
+            return Some(v);
+        }
+        None
+    }
+
+    fn parse_time(s: &str) -> Option<(u32, u32, u32, u32)> {
+        let mut iter = s.split(':');
+        let hour: u32 = iter.next()?.parse().ok()?;
+        let minute: u32 = iter.next()?.parse().ok()?;
+        let sec_str = iter.next()?;
+        let (second, nanos) = if let Some((sec_part, frac_part)) = sec_str.split_once('.') {
+            let second: u32 = sec_part.parse().ok()?;
+            let mut frac = frac_part.chars().take_while(|c| c.is_ascii_digit()).collect::<String>();
+            if frac.len() > 9 {
+                frac.truncate(9);
+            }
+            while frac.len() < 9 {
+                frac.push('0');
+            }
+            let nanos: u32 = frac.parse().ok()?;
+            (second, nanos)
+        } else {
+            let second: u32 = sec_str.parse().ok()?;
+            (second, 0)
+        };
+        Some((hour, minute, second, nanos))
+    }
+
+    fn parse_can_id(&self, s: &str) -> Result<(u32, bool)> {
+        let mut is_extended = false;
+        let mut id_str = s.to_string();
+        if let Some(last) = s.chars().last() {
+            if last == 'x' || last == 'X' {
+                is_extended = true;
+                id_str.pop();
+            }
+        }
+        let can_id = u32::from_str_radix(id_str.trim(), self.base)
+            .map_err(|_| BlfError::Parse("invalid CAN id".into()))?;
+        Ok((can_id, is_extended))
+    }
+
+    fn parse_data_tokens(&self, tokens: &[&str], count: usize) -> Vec<u8> {
+        let mut data = Vec::with_capacity(count);
+        for tok in tokens.iter().take(count) {
+            if let Ok(val) = u8::from_str_radix(tok, self.base) {
+                data.push(val);
+            } else {
+                break;
+            }
+        }
+        data
+    }
+
+    pub fn next_message(&mut self) -> Result<Option<Message>> {
+        if !self.header_parsed {
+            self.extract_header()?;
+        }
+        loop {
+            let line = if let Some(pending) = self.pending_line.take() {
+                pending
+            } else {
+                match self.read_line()? {
+                    Some(l) => l,
+                    None => return Ok(None),
+                }
+            };
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let lower = trimmed.to_lowercase();
+            if lower.starts_with("begin triggerblock") {
+                if self.relative_timestamp {
+                    self.start_time = 0.0;
+                } else {
+                    let parts: Vec<&str> = trimmed.split_whitespace().collect();
+                    if parts.len() >= 4 {
+                        let datetime_string = parts[3..].join(" ");
+                        if let Some(ts) = Self::datetime_to_timestamp(&datetime_string) {
+                            self.start_time = ts;
+                        }
+                    }
+                }
+                continue;
+            }
+            if lower.starts_with("end triggerblock") {
+                continue;
+            }
+            if lower.contains("start of measurement") {
+                continue;
+            }
+
+            let tokens: Vec<&str> = trimmed.split_whitespace().collect();
+            if tokens.len() < 2 {
+                continue;
+            }
+            let timestamp = match tokens[0].parse::<f64>() {
+                Ok(t) => t + self.start_time,
+                Err(_) => continue,
+            };
+
+            if tokens[1].eq_ignore_ascii_case("canfd") {
+                if tokens.len() < 5 {
+                    continue;
+                }
+                let channel = match tokens[2].parse::<u16>() {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+                let direction = tokens[3];
+                let rest = &tokens[4..];
+                if rest.is_empty() {
+                    continue;
+                }
+                if rest[0].eq_ignore_ascii_case("errorframe") {
+                    return Ok(Some(Message {
+                        timestamp,
+                        is_fd: true,
+                        is_error_frame: true,
+                        is_rx: direction.eq_ignore_ascii_case("Rx"),
+                        channel: channel.saturating_sub(1),
+                        ..Default::default()
+                    }));
+                }
+
+                let (can_id, is_extended) = self.parse_can_id(rest[0])?;
+                let mut idx = 1;
+                let mut brs_str = rest.get(idx).copied().unwrap_or("");
+                let mut symbolic_name_skipped = false;
+                if brs_str.chars().all(|c| c.is_ascii_digit()) {
+                    // no symbolic name
+                } else {
+                    symbolic_name_skipped = true;
+                    idx += 1;
+                    brs_str = rest.get(idx).copied().unwrap_or("");
+                }
+                idx += 1;
+                let esi_str = rest.get(idx).copied().unwrap_or("0");
+                idx += 1;
+                let dlc_str = rest.get(idx).copied().unwrap_or("0");
+                idx += 1;
+                let data_length_str = rest.get(idx).copied().unwrap_or("0");
+                idx += 1;
+
+                let brs = brs_str == "1";
+                let esi = esi_str == "1";
+                let dlc = u8::from_str_radix(dlc_str, self.base).unwrap_or(0);
+                let data_length = data_length_str.parse::<usize>().unwrap_or(0);
+                let data_tokens = if symbolic_name_skipped {
+                    &rest[idx..]
+                } else {
+                    &rest[idx..]
+                };
+                let data = self.parse_data_tokens(data_tokens, data_length);
+
+                let mut msg = Message {
+                    timestamp,
+                    arbitration_id: can_id,
+                    is_extended_id: is_extended,
+                    is_remote_frame: data_length == 0,
+                    is_rx: direction.eq_ignore_ascii_case("Rx"),
+                    is_error_frame: false,
+                    is_fd: true,
+                    bitrate_switch: brs,
+                    error_state_indicator: esi,
+                    dlc: if data_length == 0 { dlc } else { data_length as u8 },
+                    data,
+                    channel: channel.saturating_sub(1),
+                };
+
+                if data_length == 0 {
+                    msg.is_remote_frame = true;
+                }
+
+                return Ok(Some(msg));
+            }
+
+            if tokens[1].chars().all(|c| c.is_ascii_digit()) {
+                if tokens.len() < 3 {
+                    continue;
+                }
+                let channel = match tokens[1].parse::<u16>() {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+                if tokens[2].eq_ignore_ascii_case("errorframe") {
+                    return Ok(Some(Message {
+                        timestamp,
+                        is_error_frame: true,
+                        is_rx: true,
+                        channel: channel.saturating_sub(1),
+                        ..Default::default()
+                    }));
+                }
+                if tokens.len() < 6 {
+                    continue;
+                }
+                let (can_id, is_extended) = self.parse_can_id(tokens[2])?;
+                let direction = tokens[3];
+                let dtype = tokens[4];
+                if dtype.eq_ignore_ascii_case("r") {
+                    let dlc = tokens.get(5).and_then(|v| u8::from_str_radix(v, self.base).ok());
+                    return Ok(Some(Message {
+                        timestamp,
+                        arbitration_id: can_id,
+                        is_extended_id: is_extended,
+                        is_remote_frame: true,
+                        is_rx: direction.eq_ignore_ascii_case("Rx"),
+                        is_error_frame: false,
+                        is_fd: false,
+                        bitrate_switch: false,
+                        error_state_indicator: false,
+                        dlc: dlc.unwrap_or(0),
+                        data: Vec::new(),
+                        channel: channel.saturating_sub(1),
+                    }));
+                }
+                if dtype.eq_ignore_ascii_case("d") {
+                    let dlc_str = tokens.get(5).copied().unwrap_or("0");
+                    let dlc_code = u8::from_str_radix(dlc_str, self.base).unwrap_or(0);
+                    let dlc = dlc2len(dlc_code);
+                    let data_tokens = if tokens.len() > 6 { &tokens[6..] } else { &[] };
+                    let data = self.parse_data_tokens(data_tokens, std::cmp::min(8, dlc as usize));
+                    return Ok(Some(Message {
+                        timestamp,
+                        arbitration_id: can_id,
+                        is_extended_id: is_extended,
+                        is_remote_frame: false,
+                        is_rx: direction.eq_ignore_ascii_case("Rx"),
+                        is_error_frame: false,
+                        is_fd: false,
+                        bitrate_switch: false,
+                        error_state_indicator: false,
+                        dlc,
+                        data,
+                        channel: channel.saturating_sub(1),
+                    }));
+                }
+            }
+        }
+    }
+}
+
+impl Iterator for AscReader {
+    type Item = Message;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.error.is_some() {
+            return None;
+        }
+        match self.next_message() {
+            Ok(Some(msg)) => Some(msg),
+            Ok(None) => None,
+            Err(err) => {
+                self.error = Some(err);
+                None
+            }
+        }
+    }
+}
+
+pub struct AscWriter {
+    writer: BufWriter<File>,
+    channel: u16,
+    header_written: bool,
+    last_timestamp: f64,
+    started: f64,
+    finished: bool,
+}
+
+impl AscWriter {
+    pub fn create<P: AsRef<Path>>(path: P) -> Result<Self> {
+        Self::create_with_channel(path, 1)
+    }
+
+    pub fn create_with_channel<P: AsRef<Path>>(path: P, channel: u16) -> Result<Self> {
+        let file = File::create(path)?;
+        let mut writer = BufWriter::new(file);
+        let start_time = Self::format_header_datetime(Local::now());
+        writeln!(writer, "date {}", start_time)?;
+        writeln!(writer, "base hex  timestamps absolute")?;
+        writeln!(writer, "internal events logged")?;
+        Ok(Self {
+            writer,
+            channel,
+            header_written: false,
+            last_timestamp: 0.0,
+            started: 0.0,
+            finished: false,
+        })
+    }
+
+    pub fn on_message_received(&mut self, msg: &Message) -> Result<()> {
+        let mut channel = msg.channel.saturating_add(1);
+        if channel == 0 {
+            channel = self.channel;
+        }
+
+        if msg.is_error_frame {
+            self.log_event(&format!("{channel}  ErrorFrame"), msg.timestamp)?;
+            return Ok(());
+        }
+
+        let data_str = if msg.is_remote_frame {
+            "".to_string()
+        } else {
+            msg.data
+                .iter()
+                .map(|b| format!("{:02X}", b))
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        let arb_id = if msg.is_extended_id {
+            format!("{:X}x", msg.arbitration_id)
+        } else {
+            format!("{:X}", msg.arbitration_id)
+        };
+
+        if msg.is_fd {
+            let flags = (1 << 12)
+                | if msg.bitrate_switch { 1 << 13 } else { 0 }
+                | if msg.error_state_indicator { 1 << 14 } else { 0 };
+            let dlc = len2dlc(msg.dlc);
+            let data_length = if msg.is_remote_frame { 0 } else { msg.data.len() };
+            let serialized = format!(
+                "CANFD {:>3} {:<4} {:>8}  {:>32} {} {} {:x} {:>2} {} {:>8} {:>4} {:>8X} {:>8} {:>8} {:>8} {:>8} {:>8}",
+                channel,
+                if msg.is_rx { "Rx" } else { "Tx" },
+                arb_id,
+                "",
+                if msg.bitrate_switch { 1 } else { 0 },
+                if msg.error_state_indicator { 1 } else { 0 },
+                dlc,
+                data_length,
+                data_str,
+                0,
+                0,
+                flags,
+                0,
+                0,
+                0,
+                0,
+                0,
+            );
+            self.log_event(&serialized, msg.timestamp)?;
+        } else {
+            let dtype = if msg.is_remote_frame {
+                format!("r {:x}", msg.dlc)
+            } else {
+                format!("d {:x}", msg.dlc)
+            };
+            let serialized = format!(
+                "{channel}  {id:<15} {dir:<4} {dtype} {data}",
+                channel = channel,
+                id = arb_id,
+                dir = if msg.is_rx { "Rx" } else { "Tx" },
+                dtype = dtype,
+                data = data_str,
+            );
+            self.log_event(&serialized, msg.timestamp)?;
+        }
+        Ok(())
+    }
+
+    pub fn finish(&mut self) -> Result<()> {
+        if self.finished {
+            return Ok(());
+        }
+        writeln!(self.writer, "End TriggerBlock")?;
+        self.writer.flush()?;
+        self.finished = true;
+        Ok(())
+    }
+
+    fn log_event(&mut self, message: &str, timestamp: f64) -> Result<()> {
+        if !self.header_written {
+            self.started = timestamp;
+            self.last_timestamp = timestamp;
+            let start_time = Self::format_header_datetime(Self::datetime_from_timestamp(timestamp));
+            writeln!(self.writer, "Begin Triggerblock {}", start_time)?;
+            self.header_written = true;
+            self.log_event("Start of measurement", timestamp)?;
+        }
+        let mut ts = timestamp;
+        if ts == 0.0 {
+            ts = self.last_timestamp;
+        }
+        if ts >= self.started {
+            ts -= self.started;
+        }
+        self.last_timestamp = timestamp;
+        writeln!(self.writer, "{ts:9.6} {message}")?;
+        Ok(())
+    }
+
+    fn format_header_datetime(dt: chrono::DateTime<Local>) -> String {
+        let msec = dt.timestamp_subsec_millis();
+        format!("{}.{} {}", dt.format("%a %b %d %H:%M:%S"), format!("{:03}", msec), dt.format("%Y"))
+    }
+
+    fn datetime_from_timestamp(timestamp: f64) -> chrono::DateTime<Local> {
+        let secs = timestamp.floor() as i64;
+        let nanos = ((timestamp - secs as f64) * 1e9).round() as u32;
+        Local
+            .timestamp_opt(secs, nanos)
+            .single()
+            .unwrap_or_else(Local::now)
+    }
+}
+
+impl Drop for AscWriter {
     fn drop(&mut self) {
         let _ = self.finish();
     }

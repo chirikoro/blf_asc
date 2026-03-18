@@ -1,0 +1,155 @@
+# codex_blf
+
+A small Rust library for reading and writing Vector BLF and ASC (CAN log) files, modeled after python-can behavior.
+
+## Features
+
+- BLF reader with `Iterator<Item = Message>`
+- BLF writer with `on_message_received` (python-can-like)
+- ASC (Vector) reader/writer
+- Supports CAN classic, CAN FD, and error frames
+- Zlib compression for BLF (default level = -1, same intent as python-can)
+
+## Installation
+
+```toml
+[dependencies]
+codex_blf = "0.1"
+```
+
+## Usage
+
+### Read BLF
+
+```rust
+use codex_blf::{BlfReader, Result};
+
+fn main() -> Result<()> {
+    let mut reader = BlfReader::open("input.blf")?;
+    for msg in reader.by_ref() {
+        // msg: Message
+        println!("id=0x{:X} dlc={} data={:02X?}", msg.arbitration_id, msg.dlc, msg.data);
+    }
+    if let Some(err) = reader.take_error() {
+        eprintln!("reader error: {err}");
+    }
+    Ok(())
+}
+```
+
+### Write BLF (python-can style)
+
+```rust
+use codex_blf::{BlfWriter, Message, Result};
+
+fn main() -> Result<()> {
+    let mut writer = BlfWriter::create("output.blf")?; // default compression level = -1
+
+    let msg = Message {
+        timestamp: 0.0,
+        arbitration_id: 0x123,
+        is_extended_id: false,
+        is_remote_frame: false,
+        is_rx: true,
+        is_error_frame: false,
+        is_fd: false,
+        bitrate_switch: false,
+        error_state_indicator: false,
+        dlc: 3,
+        data: vec![0x11, 0x22, 0x33],
+        channel: 0, // 0-based (channel 1 in BLF/ASC)
+    };
+
+    writer.on_message_received(&msg)?;
+    writer.finish()?;
+    Ok(())
+}
+```
+
+### Read ASC
+
+```rust
+use codex_blf::{AscReader, Result};
+
+fn main() -> Result<()> {
+    let mut reader = AscReader::open("input.asc")?; // default: base hex, relative timestamps
+    for msg in reader.by_ref() {
+        println!("id=0x{:X} dlc={} data={:02X?}", msg.arbitration_id, msg.dlc, msg.data);
+    }
+    if let Some(err) = reader.take_error() {
+        eprintln!("reader error: {err}");
+    }
+    Ok(())
+}
+```
+
+### Write ASC
+
+```rust
+use codex_blf::{AscWriter, Message, Result};
+
+fn main() -> Result<()> {
+    let mut writer = AscWriter::create("output.asc")?;
+
+    let msg = Message {
+        timestamp: 1710000000.123,
+        arbitration_id: 0x123,
+        is_extended_id: false,
+        is_remote_frame: false,
+        is_rx: true,
+        is_error_frame: false,
+        is_fd: false,
+        bitrate_switch: false,
+        error_state_indicator: false,
+        dlc: 3,
+        data: vec![0x11, 0x22, 0x33],
+        channel: 0,
+    };
+
+    writer.on_message_received(&msg)?;
+    writer.finish()?;
+    Ok(())
+}
+```
+
+### Convert BLF <-> ASC
+
+```rust
+use codex_blf::{AscReader, AscWriter, BlfReader, BlfWriter, Result};
+
+fn blf_to_asc(input: &str, output: &str) -> Result<()> {
+    let reader = BlfReader::open(input)?;
+    let mut writer = AscWriter::create(output)?;
+    for msg in reader {
+        writer.on_message_received(&msg)?;
+    }
+    writer.finish()?;
+    Ok(())
+}
+
+fn asc_to_blf(input: &str, output: &str) -> Result<()> {
+    // Use absolute timestamps from ASC header/triggerblock.
+    let reader = AscReader::open_with_options(input, "hex", false)?;
+    let mut writer = BlfWriter::create(output)?;
+    for msg in reader {
+        writer.on_message_received(&msg)?;
+    }
+    writer.finish()?;
+    Ok(())
+}
+```
+
+## Notes
+
+- `Message::channel` is 0-based. It is serialized as channel+1 in BLF/ASC, matching python-can conventions.
+- BLF object types supported: CAN_MESSAGE, CAN_MESSAGE2, CAN_ERROR_EXT, CAN_FD_MESSAGE, CAN_FD_MESSAGE_64.
+- ASC timestamp precision is milliseconds. A BLF -> ASC -> BLF roundtrip will lose sub-millisecond precision.
+
+## License
+
+Licensed under either of
+
+- Apache License, Version 2.0
+- MIT license
+
+at your option.
