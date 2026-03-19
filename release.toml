@@ -1,0 +1,5 @@
+allow-branch = ["master"]
+push-remote = "origin"
+tag-prefix = ""
+pre-release-commit-message = "Release {{version}}"
+tag-message = "Release {{version}}"

@@ -2,6 +2,10 @@
 
 Vector BLF と ASC (CAN ログ) を読み書きする Rust ライブラリです。python-can の挙動を参考にしています。
 
+[![crates.io](https://img.shields.io/crates/v/codex_blf.svg)](https://crates.io/crates/codex_blf) [![docs.rs](https://docs.rs/codex_blf/badge.svg)](https://docs.rs/codex_blf) [![license](https://img.shields.io/crates/l/codex_blf.svg)](https://github.com/chirikoro/blf_asc/blob/master/LICENSE-MIT)
+
+ドキュメント: [docs.rs/codex_blf](https://docs.rs/codex_blf)
+
 ## 特長
 
 - BLF リーダは `Iterator<Item = Message>` を返却
@@ -151,3 +155,9 @@ fn asc_to_blf(input: &str, output: &str) -> Result<()> {
 - Apache License, Version 2.0
 - MIT license
 
+## リリース
+
+このリポジトリには [cargo-release](https://crates.io/crates/cargo-release) 用の `release.toml` を含めています。
+
+手順例:
+1. cargo release patch

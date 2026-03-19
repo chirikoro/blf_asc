@@ -2,6 +2,10 @@
 
 A small Rust library for reading and writing Vector BLF and ASC (CAN log) files, modeled after python-can behavior.
 
+[![crates.io](https://img.shields.io/crates/v/codex_blf.svg)](https://crates.io/crates/codex_blf) [![docs.rs](https://docs.rs/codex_blf/badge.svg)](https://docs.rs/codex_blf) [![license](https://img.shields.io/crates/l/codex_blf.svg)](https://github.com/chirikoro/blf_asc/blob/master/LICENSE-MIT)
+
+Documentation: [docs.rs/codex_blf](https://docs.rs/codex_blf)
+
 ## Features
 
 - BLF reader with `Iterator<Item = Message>`
@@ -153,3 +157,10 @@ Licensed under either of
 - MIT license
 
 at your option.
+
+## Release
+
+This repo includes `release.toml` for [cargo-release](https://crates.io/crates/cargo-release).
+
+Typical flow:
+1. cargo release patch
