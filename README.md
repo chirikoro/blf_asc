@@ -1,10 +1,10 @@
-# codex_blf
+# blf_asc
 
 A small Rust library for reading and writing Vector BLF and ASC (CAN log) files, modeled after python-can behavior.
 
-[![crates.io](https://img.shields.io/crates/v/codex_blf.svg)](https://crates.io/crates/codex_blf) [![docs.rs](https://docs.rs/codex_blf/badge.svg)](https://docs.rs/codex_blf) [![license](https://img.shields.io/crates/l/codex_blf.svg)](https://github.com/chirikoro/blf_asc/blob/master/LICENSE-MIT)
+[![crates.io](https://img.shields.io/crates/v/blf_asc.svg)](https://crates.io/crates/blf_asc) [![docs.rs](https://docs.rs/blf_asc/badge.svg)](https://docs.rs/blf_asc) [![license](https://img.shields.io/crates/l/blf_asc.svg)](https://github.com/chirikoro/blf_asc/blob/master/LICENSE-MIT)
 
-Documentation: [docs.rs/codex_blf](https://docs.rs/codex_blf)
+Documentation: [docs.rs/blf_asc](https://docs.rs/blf_asc)
 
 ## Features
 
@@ -18,7 +18,7 @@ Documentation: [docs.rs/codex_blf](https://docs.rs/codex_blf)
 
 ```toml
 [dependencies]
-codex_blf = "0.1"
+blf_asc = "0.1"
 ```
 
 ## Usage
@@ -26,7 +26,7 @@ codex_blf = "0.1"
 ### Read BLF
 
 ```rust
-use codex_blf::{BlfReader, Result};
+use blf_asc::{BlfReader, Result};
 
 fn main() -> Result<()> {
     let mut reader = BlfReader::open("input.blf")?;
@@ -44,7 +44,7 @@ fn main() -> Result<()> {
 ### Write BLF (python-can style)
 
 ```rust
-use codex_blf::{BlfWriter, Message, Result};
+use blf_asc::{BlfWriter, Message, Result};
 
 fn main() -> Result<()> {
     let mut writer = BlfWriter::create("output.blf")?; // default compression level = -1
@@ -73,7 +73,7 @@ fn main() -> Result<()> {
 ### Read ASC
 
 ```rust
-use codex_blf::{AscReader, Result};
+use blf_asc::{AscReader, Result};
 
 fn main() -> Result<()> {
     let mut reader = AscReader::open("input.asc")?; // default: base hex, relative timestamps
@@ -90,7 +90,7 @@ fn main() -> Result<()> {
 ### Write ASC
 
 ```rust
-use codex_blf::{AscWriter, Message, Result};
+use blf_asc::{AscWriter, Message, Result};
 
 fn main() -> Result<()> {
     let mut writer = AscWriter::create("output.asc")?;
@@ -119,7 +119,7 @@ fn main() -> Result<()> {
 ### Convert BLF <-> ASC
 
 ```rust
-use codex_blf::{AscReader, AscWriter, BlfReader, BlfWriter, Result};
+use blf_asc::{AscReader, AscWriter, BlfReader, BlfWriter, Result};
 
 fn blf_to_asc(input: &str, output: &str) -> Result<()> {
     let reader = BlfReader::open(input)?;

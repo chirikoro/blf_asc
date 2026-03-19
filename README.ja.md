@@ -1,10 +1,10 @@
-# codex_blf
+# blf_asc
 
 Vector BLF と ASC (CAN ログ) を読み書きする Rust ライブラリです。python-can の挙動を参考にしています。
 
-[![crates.io](https://img.shields.io/crates/v/codex_blf.svg)](https://crates.io/crates/codex_blf) [![docs.rs](https://docs.rs/codex_blf/badge.svg)](https://docs.rs/codex_blf) [![license](https://img.shields.io/crates/l/codex_blf.svg)](https://github.com/chirikoro/blf_asc/blob/master/LICENSE-MIT)
+[![crates.io](https://img.shields.io/crates/v/blf_asc.svg)](https://crates.io/crates/blf_asc) [![docs.rs](https://docs.rs/blf_asc/badge.svg)](https://docs.rs/blf_asc) [![license](https://img.shields.io/crates/l/blf_asc.svg)](https://github.com/chirikoro/blf_asc/blob/master/LICENSE-MIT)
 
-ドキュメント: [docs.rs/codex_blf](https://docs.rs/codex_blf)
+ドキュメント: [docs.rs/blf_asc](https://docs.rs/blf_asc)
 
 ## 特長
 
@@ -18,7 +18,7 @@ Vector BLF と ASC (CAN ログ) を読み書きする Rust ライブラリです
 
 ```toml
 [dependencies]
-codex_blf = "0.1"
+blf_asc = "0.1"
 ```
 
 ## 使い方
@@ -26,7 +26,7 @@ codex_blf = "0.1"
 ### BLF を読む
 
 ```rust
-use codex_blf::{BlfReader, Result};
+use blf_asc::{BlfReader, Result};
 
 fn main() -> Result<()> {
     let mut reader = BlfReader::open("input.blf")?;
@@ -43,7 +43,7 @@ fn main() -> Result<()> {
 ### BLF を書く (python-can 風)
 
 ```rust
-use codex_blf::{BlfWriter, Message, Result};
+use blf_asc::{BlfWriter, Message, Result};
 
 fn main() -> Result<()> {
     let mut writer = BlfWriter::create("output.blf")?; // デフォルト圧縮レベル = -1
@@ -72,7 +72,7 @@ fn main() -> Result<()> {
 ### ASC を読む
 
 ```rust
-use codex_blf::{AscReader, Result};
+use blf_asc::{AscReader, Result};
 
 fn main() -> Result<()> {
     let mut reader = AscReader::open("input.asc")?; // 既定: base hex, 相対時刻
@@ -89,7 +89,7 @@ fn main() -> Result<()> {
 ### ASC を書く
 
 ```rust
-use codex_blf::{AscWriter, Message, Result};
+use blf_asc::{AscWriter, Message, Result};
 
 fn main() -> Result<()> {
     let mut writer = AscWriter::create("output.asc")?;
@@ -118,7 +118,7 @@ fn main() -> Result<()> {
 ### BLF <-> ASC 変換
 
 ```rust
-use codex_blf::{AscReader, AscWriter, BlfReader, BlfWriter, Result};
+use blf_asc::{AscReader, AscWriter, BlfReader, BlfWriter, Result};
 
 fn blf_to_asc(input: &str, output: &str) -> Result<()> {
     let reader = BlfReader::open(input)?;

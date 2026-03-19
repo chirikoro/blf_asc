@@ -1,12 +1,12 @@
 [package]
-name = "codex_blf"
+name = "blf_asc"
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Read/write Vector BLF and ASC (CAN log) files."
 readme = "README.md"
 keywords = ["can", "blf", "asc", "vector", "logging"]
-documentation = "https://docs.rs/codex_blf"
+documentation = "https://docs.rs/blf_asc"
 repository = "https://github.com/chirikoro/blf_asc"
 homepage = "https://github.com/chirikoro/blf_asc"
 include = [
