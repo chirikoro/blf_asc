@@ -18,7 +18,7 @@ Documentation: [docs.rs/blf_asc](https://docs.rs/blf_asc)
 
 ```toml
 [dependencies]
-blf_asc = "0.1"
+blf_asc = "0.2"
 ```
 
 ## Usage
@@ -32,7 +32,7 @@ fn main() -> Result<()> {
     let mut reader = BlfReader::open("input.blf")?;
     for msg in reader.by_ref() {
         // msg: Message
-        println!("id=0x{:X} dlc={} data={:02X?}", msg.arbitration_id, msg.dlc, msg.data);
+        println!("id={} dlc={} data={:?}", msg.arbitration_id, msg.dlc, msg.data);
     }
     if let Some(err) = reader.take_error() {
         eprintln!("reader error: {err}");
@@ -41,7 +41,7 @@ fn main() -> Result<()> {
 }
 ```
 
-Note: `msg.data` is a `Vec<u8>`. To print hex, use `{:02X?}` or `msg.data_hex()`. The helper `msg.arbitration_id_hex()` prints the ID as hex.
+Note: `msg.data` is `DataBytes` (hex-friendly). `println!("{:?}", msg.data)` prints hex. The helper `msg.data_hex()` returns a hex string, and `msg.arbitration_id_hex()` prints the ID as hex.
 
 ### Write BLF (python-can style)
 
@@ -53,7 +53,7 @@ fn main() -> Result<()> {
 
     let msg = Message {
         timestamp: 0.0,
-        arbitration_id: 0x123,
+        arbitration_id: 0x123.into(),
         is_extended_id: false,
         is_remote_frame: false,
         is_rx: true,
@@ -62,7 +62,7 @@ fn main() -> Result<()> {
         bitrate_switch: false,
         error_state_indicator: false,
         dlc: 3,
-        data: vec![0x11, 0x22, 0x33],
+        data: vec![0x11, 0x22, 0x33].into(),
         channel: 0, // 0-based (channel 1 in BLF/ASC)
     };
 
@@ -80,7 +80,7 @@ use blf_asc::{AscReader, Result};
 fn main() -> Result<()> {
     let mut reader = AscReader::open("input.asc")?; // default: base hex, relative timestamps
     for msg in reader.by_ref() {
-        println!("id=0x{:X} dlc={} data={:02X?}", msg.arbitration_id, msg.dlc, msg.data);
+        println!("id={} dlc={} data={:?}", msg.arbitration_id, msg.dlc, msg.data);
     }
     if let Some(err) = reader.take_error() {
         eprintln!("reader error: {err}");
@@ -99,7 +99,7 @@ fn main() -> Result<()> {
 
     let msg = Message {
         timestamp: 1710000000.123,
-        arbitration_id: 0x123,
+        arbitration_id: 0x123.into(),
         is_extended_id: false,
         is_remote_frame: false,
         is_rx: true,
@@ -108,7 +108,7 @@ fn main() -> Result<()> {
         bitrate_switch: false,
         error_state_indicator: false,
         dlc: 3,
-        data: vec![0x11, 0x22, 0x33],
+        data: vec![0x11, 0x22, 0x33].into(),
         channel: 0,
     };
 

@@ -18,7 +18,7 @@ Vector BLF と ASC (CAN ログ) を読み書きする Rust ライブラリです
 
 ```toml
 [dependencies]
-blf_asc = "0.1"
+blf_asc = "0.2"
 ```
 
 ## 使い方
@@ -31,7 +31,7 @@ use blf_asc::{BlfReader, Result};
 fn main() -> Result<()> {
     let mut reader = BlfReader::open("input.blf")?;
     for msg in reader.by_ref() {
-        println!("id=0x{:X} dlc={} data={:02X?}", msg.arbitration_id, msg.dlc, msg.data);
+        println!("id={} dlc={} data={:?}", msg.arbitration_id, msg.dlc, msg.data);
     }
     if let Some(err) = reader.take_error() {
         eprintln!("reader error: {err}");
@@ -40,7 +40,7 @@ fn main() -> Result<()> {
 }
 ```
 
-補足: `msg.data` は `Vec<u8>` なので、そのまま表示すると 10 進数になります。16 進数で表示したい場合は `{:02X?}` か `msg.data_hex()` を使ってください。ID は `msg.arbitration_id_hex()` で 16 進表記にできます。
+補足: `msg.data` は `DataBytes`（16進表示向け）です。`println!("{:?}", msg.data)` で 16 進表示になります。`msg.data_hex()` で 16 進文字列、`msg.arbitration_id_hex()` で ID の 16 進表記が取れます。
 
 ### BLF を書く (python-can 風)
 
@@ -52,7 +52,7 @@ fn main() -> Result<()> {
 
     let msg = Message {
         timestamp: 0.0,
-        arbitration_id: 0x123,
+        arbitration_id: 0x123.into(),
         is_extended_id: false,
         is_remote_frame: false,
         is_rx: true,
@@ -61,7 +61,7 @@ fn main() -> Result<()> {
         bitrate_switch: false,
         error_state_indicator: false,
         dlc: 3,
-        data: vec![0x11, 0x22, 0x33],
+        data: vec![0x11, 0x22, 0x33].into(),
         channel: 0, // 0-based (BLF/ASC では 1 チャンネル)
     };
 
@@ -79,7 +79,7 @@ use blf_asc::{AscReader, Result};
 fn main() -> Result<()> {
     let mut reader = AscReader::open("input.asc")?; // 既定: base hex, 相対時刻
     for msg in reader.by_ref() {
-        println!("id=0x{:X} dlc={} data={:02X?}", msg.arbitration_id, msg.dlc, msg.data);
+        println!("id={} dlc={} data={:?}", msg.arbitration_id, msg.dlc, msg.data);
     }
     if let Some(err) = reader.take_error() {
         eprintln!("reader error: {err}");
@@ -98,7 +98,7 @@ fn main() -> Result<()> {
 
     let msg = Message {
         timestamp: 1710000000.123,
-        arbitration_id: 0x123,
+        arbitration_id: 0x123.into(),
         is_extended_id: false,
         is_remote_frame: false,
         is_rx: true,
@@ -107,7 +107,7 @@ fn main() -> Result<()> {
         bitrate_switch: false,
         error_state_indicator: false,
         dlc: 3,
-        data: vec![0x11, 0x22, 0x33],
+        data: vec![0x11, 0x22, 0x33].into(),
         channel: 0,
     };
 

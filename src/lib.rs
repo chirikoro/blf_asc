@@ -4,6 +4,7 @@ use flate2::write::ZlibEncoder;
 use flate2::Compression;
 use std::collections::VecDeque;
 use std::fmt;
+use std::ops::Deref;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::Path;
@@ -68,10 +69,141 @@ impl From<io::Error> for BlfError {
 
 pub type Result<T> = std::result::Result<T, BlfError>;
 
+#[derive(Clone, Default, PartialEq, Eq)]
+pub struct DataBytes(pub Vec<u8>);
+
+impl DataBytes {
+    pub fn as_slice(&self) -> &[u8] {
+        &self.0
+    }
+
+    pub fn to_vec(&self) -> Vec<u8> {
+        self.0.clone()
+    }
+
+    pub fn hex(&self) -> String {
+        self.0
+            .iter()
+            .map(|b| format!("{:02X}", b))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+}
+
+impl fmt::Debug for DataBytes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("[")?;
+        for (i, b) in self.0.iter().enumerate() {
+            if i > 0 {
+                f.write_str(", ")?;
+            }
+            write!(f, "{:02X}", b)?;
+        }
+        f.write_str("]")
+    }
+}
+
+impl fmt::Display for DataBytes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.hex())
+    }
+}
+
+impl Deref for DataBytes {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl AsRef<[u8]> for DataBytes {
+    fn as_ref(&self) -> &[u8] {
+        self.as_slice()
+    }
+}
+
+impl From<Vec<u8>> for DataBytes {
+    fn from(value: Vec<u8>) -> Self {
+        Self(value)
+    }
+}
+
+impl From<&[u8]> for DataBytes {
+    fn from(value: &[u8]) -> Self {
+        Self(value.to_vec())
+    }
+}
+
+impl<const N: usize> From<[u8; N]> for DataBytes {
+    fn from(value: [u8; N]) -> Self {
+        Self(value.to_vec())
+    }
+}
+
+impl From<DataBytes> for Vec<u8> {
+    fn from(value: DataBytes) -> Self {
+        value.0
+    }
+}
+
+impl FromIterator<u8> for DataBytes {
+    fn from_iter<T: IntoIterator<Item = u8>>(iter: T) -> Self {
+        Self(iter.into_iter().collect())
+    }
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ArbitrationId(pub u32);
+
+impl fmt::Debug for ArbitrationId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "0x{:X}", self.0)
+    }
+}
+
+impl fmt::Display for ArbitrationId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "0x{:X}", self.0)
+    }
+}
+
+impl fmt::UpperHex for ArbitrationId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:X}", self.0)
+    }
+}
+
+impl fmt::LowerHex for ArbitrationId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:x}", self.0)
+    }
+}
+
+impl Deref for ArbitrationId {
+    type Target = u32;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<u32> for ArbitrationId {
+    fn from(value: u32) -> Self {
+        Self(value)
+    }
+}
+
+impl From<ArbitrationId> for u32 {
+    fn from(value: ArbitrationId) -> Self {
+        value.0
+    }
+}
+
 #[derive(Clone)]
 pub struct Message {
     pub timestamp: f64,
-    pub arbitration_id: u32,
+    pub arbitration_id: ArbitrationId,
     pub is_extended_id: bool,
     pub is_remote_frame: bool,
     pub is_rx: bool,
@@ -80,17 +212,15 @@ pub struct Message {
     pub bitrate_switch: bool,
     pub error_state_indicator: bool,
     pub dlc: u8,
-    pub data: Vec<u8>,
+    pub data: DataBytes,
     pub channel: u16,
 }
 
 impl fmt::Debug for Message {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let arb_id_hex = self.arbitration_id_hex();
-        let data_hex = self.data_hex();
         f.debug_struct("Message")
             .field("timestamp", &self.timestamp)
-            .field("arbitration_id", &arb_id_hex)
+            .field("arbitration_id", &self.arbitration_id)
             .field("is_extended_id", &self.is_extended_id)
             .field("is_remote_frame", &self.is_remote_frame)
             .field("is_rx", &self.is_rx)
@@ -99,7 +229,7 @@ impl fmt::Debug for Message {
             .field("bitrate_switch", &self.bitrate_switch)
             .field("error_state_indicator", &self.error_state_indicator)
             .field("dlc", &self.dlc)
-            .field("data", &data_hex)
+            .field("data", &self.data)
             .field("channel", &self.channel)
             .finish()
     }
@@ -109,7 +239,7 @@ impl Default for Message {
     fn default() -> Self {
         Self {
             timestamp: 0.0,
-            arbitration_id: 0,
+            arbitration_id: ArbitrationId::default(),
             is_extended_id: false,
             is_remote_frame: false,
             is_rx: true,
@@ -118,7 +248,7 @@ impl Default for Message {
             bitrate_switch: false,
             error_state_indicator: false,
             dlc: 0,
-            data: Vec::new(),
+            data: DataBytes::default(),
             channel: 0,
         }
     }
@@ -126,15 +256,11 @@ impl Default for Message {
 
 impl Message {
     pub fn data_hex(&self) -> String {
-        self.data
-            .iter()
-            .map(|b| format!("{:02X}", b))
-            .collect::<Vec<_>>()
-            .join(" ")
+        self.data.hex()
     }
 
     pub fn arbitration_id_hex(&self) -> String {
-        format!("0x{:X}", self.arbitration_id)
+        self.arbitration_id.to_string()
     }
 }
 
@@ -467,7 +593,7 @@ impl BlfReader {
                     data.extend_from_slice(&buffer[data_start..data_start + data_len]);
                     messages.push(Message {
                         timestamp,
-                        arbitration_id: can_id & 0x1FFF_FFFF,
+                        arbitration_id: (can_id & 0x1FFF_FFFF).into(),
                         is_extended_id: (can_id & CAN_MSG_EXT) != 0,
                         is_remote_frame: (flags & REMOTE_FLAG) != 0,
                         is_rx: (flags & DIR) == 0,
@@ -476,7 +602,7 @@ impl BlfReader {
                         bitrate_switch: false,
                         error_state_indicator: false,
                         dlc,
-                        data,
+                        data: data.into(),
                         channel: channel.saturating_sub(1),
                     });
                 }
@@ -493,7 +619,7 @@ impl BlfReader {
                     data.extend_from_slice(&buffer[data_start..data_start + data_len]);
                     messages.push(Message {
                         timestamp,
-                        arbitration_id: can_id & 0x1FFF_FFFF,
+                        arbitration_id: (can_id & 0x1FFF_FFFF).into(),
                         is_extended_id: (can_id & CAN_MSG_EXT) != 0,
                         is_remote_frame: false,
                         is_rx: true,
@@ -502,7 +628,7 @@ impl BlfReader {
                         bitrate_switch: false,
                         error_state_indicator: false,
                         dlc,
-                        data,
+                        data: data.into(),
                         channel: channel.saturating_sub(1),
                     });
                 }
@@ -522,7 +648,7 @@ impl BlfReader {
                     data.extend_from_slice(&buffer[data_start..data_start + data_len]);
                     messages.push(Message {
                         timestamp,
-                        arbitration_id: can_id & 0x1FFF_FFFF,
+                        arbitration_id: (can_id & 0x1FFF_FFFF).into(),
                         is_extended_id: (can_id & CAN_MSG_EXT) != 0,
                         is_remote_frame: (flags & REMOTE_FLAG) != 0,
                         is_rx: (flags & DIR) == 0,
@@ -531,7 +657,7 @@ impl BlfReader {
                         bitrate_switch: (fd_flags & BRS) != 0,
                         error_state_indicator: (fd_flags & ESI) != 0,
                         dlc: dlc2len(dlc_code),
-                        data,
+                        data: data.into(),
                         channel: channel.saturating_sub(1),
                     });
                 }
@@ -571,7 +697,7 @@ impl BlfReader {
 
                     messages.push(Message {
                         timestamp,
-                        arbitration_id: can_id & 0x1FFF_FFFF,
+                        arbitration_id: (can_id & 0x1FFF_FFFF).into(),
                         is_extended_id: (can_id & CAN_MSG_EXT) != 0,
                         is_remote_frame: (fd_flags & 0x0010) != 0,
                         is_rx: direction == 0,
@@ -580,7 +706,7 @@ impl BlfReader {
                         bitrate_switch: (fd_flags & 0x2000) != 0,
                         error_state_indicator: (fd_flags & 0x4000) != 0,
                         dlc: dlc2len(dlc_code),
-                        data,
+                        data: data.into(),
                         channel: channel.saturating_sub(1) as u16,
                     });
                 }
@@ -802,7 +928,7 @@ impl BlfWriter {
 
     fn write_can_message(&mut self, msg: &Message) -> Result<()> {
         let channel = msg.channel.saturating_add(1);
-        let mut arb_id = msg.arbitration_id;
+        let mut arb_id: u32 = msg.arbitration_id.into();
         if msg.is_extended_id {
             arb_id |= CAN_MSG_EXT;
         }
@@ -813,7 +939,7 @@ impl BlfWriter {
         let dlc = msg.dlc;
         let mut data = [0u8; 8];
         let copy_len = std::cmp::min(msg.data.len(), 8);
-        data[..copy_len].copy_from_slice(&msg.data[..copy_len]);
+        data[..copy_len].copy_from_slice(&msg.data.as_slice()[..copy_len]);
 
         let mut payload = Vec::with_capacity(CAN_MSG_SIZE);
         payload.extend_from_slice(&channel.to_le_bytes());
@@ -826,7 +952,7 @@ impl BlfWriter {
 
     fn write_can_fd_message(&mut self, msg: &Message) -> Result<()> {
         let channel = msg.channel.saturating_add(1);
-        let mut arb_id = msg.arbitration_id;
+        let mut arb_id: u32 = msg.arbitration_id.into();
         if msg.is_extended_id {
             arb_id |= CAN_MSG_EXT;
         }
@@ -844,7 +970,8 @@ impl BlfWriter {
         }
         let valid_bytes = std::cmp::min(msg.data.len(), 64) as u8;
         let mut data = [0u8; 64];
-        data[..valid_bytes as usize].copy_from_slice(&msg.data[..valid_bytes as usize]);
+        data[..valid_bytes as usize]
+            .copy_from_slice(&msg.data.as_slice()[..valid_bytes as usize]);
 
         let mut payload = Vec::with_capacity(CAN_FD_MSG_SIZE);
         payload.extend_from_slice(&channel.to_le_bytes());
@@ -862,14 +989,14 @@ impl BlfWriter {
 
     fn write_can_error_ext(&mut self, msg: &Message) -> Result<()> {
         let channel = msg.channel.saturating_add(1);
-        let mut arb_id = msg.arbitration_id;
+        let mut arb_id: u32 = msg.arbitration_id.into();
         if msg.is_extended_id {
             arb_id |= CAN_MSG_EXT;
         }
         let dlc = len2dlc(msg.dlc);
         let mut data = [0u8; 8];
         let copy_len = std::cmp::min(msg.data.len(), 8);
-        data[..copy_len].copy_from_slice(&msg.data[..copy_len]);
+        data[..copy_len].copy_from_slice(&msg.data.as_slice()[..copy_len]);
 
         let mut payload = Vec::with_capacity(CAN_ERROR_EXT_SIZE);
         payload.extend_from_slice(&channel.to_le_bytes());
@@ -1209,7 +1336,7 @@ impl AscReader {
 
                 let mut msg = Message {
                     timestamp,
-                    arbitration_id: can_id,
+                    arbitration_id: can_id.into(),
                     is_extended_id: is_extended,
                     is_remote_frame: data_length == 0,
                     is_rx: direction.eq_ignore_ascii_case("Rx"),
@@ -1218,7 +1345,7 @@ impl AscReader {
                     bitrate_switch: brs,
                     error_state_indicator: esi,
                     dlc: if data_length == 0 { dlc } else { data_length as u8 },
-                    data,
+                    data: data.into(),
                     channel: channel.saturating_sub(1),
                 };
 
@@ -1256,7 +1383,7 @@ impl AscReader {
                     let dlc = tokens.get(5).and_then(|v| u8::from_str_radix(v, self.base).ok());
                     return Ok(Some(Message {
                         timestamp,
-                        arbitration_id: can_id,
+                        arbitration_id: can_id.into(),
                         is_extended_id: is_extended,
                         is_remote_frame: true,
                         is_rx: direction.eq_ignore_ascii_case("Rx"),
@@ -1265,7 +1392,7 @@ impl AscReader {
                         bitrate_switch: false,
                         error_state_indicator: false,
                         dlc: dlc.unwrap_or(0),
-                        data: Vec::new(),
+                        data: DataBytes::default(),
                         channel: channel.saturating_sub(1),
                     }));
                 }
@@ -1277,7 +1404,7 @@ impl AscReader {
                     let data = self.parse_data_tokens(data_tokens, std::cmp::min(8, dlc as usize));
                     return Ok(Some(Message {
                         timestamp,
-                        arbitration_id: can_id,
+                        arbitration_id: can_id.into(),
                         is_extended_id: is_extended,
                         is_remote_frame: false,
                         is_rx: direction.eq_ignore_ascii_case("Rx"),
@@ -1286,7 +1413,7 @@ impl AscReader {
                         bitrate_switch: false,
                         error_state_indicator: false,
                         dlc,
-                        data,
+                        data: data.into(),
                         channel: channel.saturating_sub(1),
                     }));
                 }
@@ -1358,11 +1485,7 @@ impl AscWriter {
         let data_str = if msg.is_remote_frame {
             "".to_string()
         } else {
-            msg.data
-                .iter()
-                .map(|b| format!("{:02X}", b))
-                .collect::<Vec<_>>()
-                .join(" ")
+            msg.data.hex()
         };
         let arb_id = if msg.is_extended_id {
             format!("{:X}x", msg.arbitration_id)
