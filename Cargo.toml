@@ -10,7 +10,7 @@ documentation = "https://docs.rs/blf_asc"
 repository = "https://github.com/chirikoro/blf_asc"
 homepage = "https://github.com/chirikoro/blf_asc"
 include = [
-    "src/**",
+    "src/lib.rs",
     "Cargo.toml",
     "README.md",
     "README.ja.md",
