@@ -68,7 +68,7 @@ impl From<io::Error> for BlfError {
 
 pub type Result<T> = std::result::Result<T, BlfError>;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Message {
     pub timestamp: f64,
     pub arbitration_id: u32,
@@ -82,6 +82,30 @@ pub struct Message {
     pub dlc: u8,
     pub data: Vec<u8>,
     pub channel: u16,
+}
+
+impl fmt::Debug for Message {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let data_hex: Vec<String> = self
+            .data
+            .iter()
+            .map(|b| format!("0x{:02X}", b))
+            .collect();
+        f.debug_struct("Message")
+            .field("timestamp", &self.timestamp)
+            .field("arbitration_id", &self.arbitration_id)
+            .field("is_extended_id", &self.is_extended_id)
+            .field("is_remote_frame", &self.is_remote_frame)
+            .field("is_rx", &self.is_rx)
+            .field("is_error_frame", &self.is_error_frame)
+            .field("is_fd", &self.is_fd)
+            .field("bitrate_switch", &self.bitrate_switch)
+            .field("error_state_indicator", &self.error_state_indicator)
+            .field("dlc", &self.dlc)
+            .field("data", &data_hex)
+            .field("channel", &self.channel)
+            .finish()
+    }
 }
 
 impl Default for Message {
@@ -100,6 +124,16 @@ impl Default for Message {
             data: Vec::new(),
             channel: 0,
         }
+    }
+}
+
+impl Message {
+    pub fn data_hex(&self) -> String {
+        self.data
+            .iter()
+            .map(|b| format!("{:02X}", b))
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 }
 

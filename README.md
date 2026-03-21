@@ -41,6 +41,8 @@ fn main() -> Result<()> {
 }
 ```
 
+Note: `msg.data` is a `Vec<u8>`. To print hex, use `{:02X?}` or `msg.data_hex()`.
+
 ### Write BLF (python-can style)
 
 ```rust

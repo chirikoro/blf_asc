@@ -1,3 +1,4 @@
 /target
 *.blf
 *.asc
+src/main.rs
