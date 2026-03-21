@@ -86,14 +86,11 @@ pub struct Message {
 
 impl fmt::Debug for Message {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let data_hex: Vec<String> = self
-            .data
-            .iter()
-            .map(|b| format!("0x{:02X}", b))
-            .collect();
+        let arb_id_hex = self.arbitration_id_hex();
+        let data_hex = self.data_hex();
         f.debug_struct("Message")
             .field("timestamp", &self.timestamp)
-            .field("arbitration_id", &self.arbitration_id)
+            .field("arbitration_id", &arb_id_hex)
             .field("is_extended_id", &self.is_extended_id)
             .field("is_remote_frame", &self.is_remote_frame)
             .field("is_rx", &self.is_rx)
@@ -134,6 +131,10 @@ impl Message {
             .map(|b| format!("{:02X}", b))
             .collect::<Vec<_>>()
             .join(" ")
+    }
+
+    pub fn arbitration_id_hex(&self) -> String {
+        format!("0x{:X}", self.arbitration_id)
     }
 }
 

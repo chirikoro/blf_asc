@@ -40,7 +40,7 @@ fn main() -> Result<()> {
 }
 ```
 
-補足: `msg.data` は `Vec<u8>` なので、そのまま表示すると 10 進数になります。16 進数で表示したい場合は `{:02X?}` か `msg.data_hex()` を使ってください。
+補足: `msg.data` は `Vec<u8>` なので、そのまま表示すると 10 進数になります。16 進数で表示したい場合は `{:02X?}` か `msg.data_hex()` を使ってください。ID は `msg.arbitration_id_hex()` で 16 進表記にできます。
 
 ### BLF を書く (python-can 風)
 

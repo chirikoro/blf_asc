@@ -41,7 +41,7 @@ fn main() -> Result<()> {
 }
 ```
 
-Note: `msg.data` is a `Vec<u8>`. To print hex, use `{:02X?}` or `msg.data_hex()`.
+Note: `msg.data` is a `Vec<u8>`. To print hex, use `{:02X?}` or `msg.data_hex()`. The helper `msg.arbitration_id_hex()` prints the ID as hex.
 
 ### Write BLF (python-can style)
 
